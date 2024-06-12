@@ -32,6 +32,22 @@ public class MondayService {
         return executeQuery(mutation);
     }
 
+    public String subscribeToTrigger(int boardId, String webhookUrl, String event) throws IOException {
+        String mutation = String.format(
+                "mutation { create_webhook (board_id: %d, url: \"%s\", event: \"%s\") { webhook { id } } }",
+                boardId, webhookUrl, event
+        );
+        return executeQuery(mutation);
+    }
+
+    public String unsubscribeFromTrigger(String webhookId) throws IOException {
+        String mutation = String.format(
+                "mutation { delete_webhook (id: \"%s\") { id } }",
+                webhookId
+        );
+        return executeQuery(mutation);
+    }
+
     private String executeQuery(String query) throws IOException {
         JSONObject json = new JSONObject();
         json.put("query", query);
@@ -66,5 +82,45 @@ public class MondayService {
             }
         }
         return taskIds;
+    }
+
+    public List<JSONObject> getAllItemsInBoard(Long boardId) throws IOException {
+//        String query = String.format("{ boards (ids: %d) { groups { items { id name column_values { id text } } } } }", boardId);
+        String q = String.format("{ boards (ids: %d) { items { id name column_values { id text } } } }", boardId);
+//        String query = String.format("{ boards (ids: 6714877704) { items { id name column_values { id title value } } }");
+        String query = String.format("query {\n" +
+                "  boards(ids: 6714877704) {\n" +
+                "    items_page(limit: 5){\n" +
+                "      items{\n" +
+                "        id\n" +
+                "        name\n" +
+                "        column_values {\n" +
+                "          column {\n" +
+                "            title\n" +
+                "          }\n" +
+                "          text\n" +
+                "          value\n" +
+                "        }\n" +
+                "      }\n" +
+                "    }\n" +
+                "  }\n" +
+                "}");
+        String response = executeQuery(query);
+        return parseItems(response);
+    }
+
+
+    private List<JSONObject> parseItems(String response) {
+        List<JSONObject> itemsList = new ArrayList<>();
+        System.out.println(response);
+        JSONObject jsonResponse = new JSONObject(response);
+        JSONArray items = jsonResponse.getJSONObject("data").getJSONArray("boards")
+                .getJSONObject(0).getJSONArray("items");
+
+        for (int i = 0; i < items.length(); i++) {
+            itemsList.add(items.getJSONObject(i));
+        }
+        System.out.println(itemsList);
+        return itemsList;
     }
 }
