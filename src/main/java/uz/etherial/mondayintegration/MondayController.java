@@ -4,10 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -44,34 +44,38 @@ public class MondayController {
 //        }
 //    }
 
-    @GetMapping("/tasks/dependencies")
-    public List<Integer> getDependentTaskIds(@RequestParam int boardId, @RequestParam int itemId) {
-        try {
-            return mondayService.getDependentTaskIds(boardId, itemId);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
+//    @GetMapping("/tasks/dependencies")
+//    public List<Integer> getDependentTaskIds(@RequestParam int boardId, @RequestParam int itemId) {
+//        try {
+//            return mondayService.getDependentTaskIds(boardId, itemId);
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//            return null;
+//        }
+//    }
 
-    @PostMapping("/tasks/updateStatus")
-    public String updateTaskStatus(
-            @RequestParam int boardId,
-            @RequestParam int itemId,
-            @RequestParam String newStatus
-    ) {
-        try {
-            return mondayService.updateTaskStatus(boardId, itemId, newStatus);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return "Error updating task status: " + e.getMessage();
-        }
-    }
+//    @PostMapping("/tasks/updateStatus")
+//    public String updateTaskStatus(
+//            @RequestParam int boardId,
+//            @RequestParam int itemId,
+//            @RequestParam String newStatus
+//    ) {
+//        try {
+//            return mondayService.updateTaskStatus(boardId, itemId, newStatus);
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//            return "Error updating task status: " + e.getMessage();
+//        }
+//    }
 
     @SneakyThrows
-    @PostMapping(value = "/update")
+    @PostMapping(value = "/")
     public Object get(@RequestBody Map<String, Object> challenge) {
-        mondayService.getAllItemsInBoard(6714877704L);
+        if (challenge.containsKey("challenge")) {
+            return challenge;
+        }
+        System.out.println(challenge);
+        mondayService.updatedItem(challenge);
         return challenge;
     }
 }

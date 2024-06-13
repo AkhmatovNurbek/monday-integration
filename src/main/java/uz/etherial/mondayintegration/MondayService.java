@@ -1,17 +1,24 @@
 package uz.etherial.mondayintegration;
 
-import okhttp3.*;
-import org.json.JSONArray;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import uz.etherial.mondayintegration.model.*;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
+@RequiredArgsConstructor
 public class MondayService {
+    private static final String COLUMN_ID = "status8__1";
+    private static final String NEW_VALUE = "To do";
 
     @Value("${monday.api.token}")
     private String apiToken;
@@ -19,108 +26,125 @@ public class MondayService {
     @Value("${monday.api.url}")
     private String apiUrl;
 
-    private final OkHttpClient client = new OkHttpClient();
+    private final WebClient webClient;
+    private final ObjectMapper objectMapper;
+    private MondayBoard mondayBoard;
 
-    public List<Integer> getDependentTaskIds(int boardId, int itemId) throws IOException {
-        String query = String.format("{ boards (ids: %d) { items (ids: %d) { column_values(ids: \"dependency\") { text } } } }", boardId, itemId);
-        String response = executeQuery(query);
-        return parseDependentTaskIds(response);
-    }
+    private List<Item> allItems = new ArrayList<>();
 
-    public String updateTaskStatus(int boardId, int itemId, String newStatus) throws IOException {
-        String mutation = String.format("mutation { change_column_value(board_id: %d, item_id: %d, column_id: \"status\", value: \"{\\\"label\\\":\\\"%s\\\"}\") { id } }", boardId, itemId, newStatus);
-        return executeQuery(mutation);
-    }
-
-    public String subscribeToTrigger(int boardId, String webhookUrl, String event) throws IOException {
-        String mutation = String.format(
-                "mutation { create_webhook (board_id: %d, url: \"%s\", event: \"%s\") { webhook { id } } }",
-                boardId, webhookUrl, event
-        );
-        return executeQuery(mutation);
-    }
-
-    public String unsubscribeFromTrigger(String webhookId) throws IOException {
-        String mutation = String.format(
-                "mutation { delete_webhook (id: \"%s\") { id } }",
-                webhookId
-        );
-        return executeQuery(mutation);
-    }
-
-    private String executeQuery(String query) throws IOException {
+    private Object executeQuery(String query) throws IOException {
         JSONObject json = new JSONObject();
         json.put("query", query);
-
-        RequestBody body = RequestBody.create(json.toString(), MediaType.parse("application/json"));
-        Request request = new Request.Builder()
-                .url(apiUrl)
-                .post(body)
-                .addHeader("Authorization", apiToken)
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) throw new IOException("Unexpected code " + response);
-            return response.body().string();
-        }
+        return webClient
+                .post()
+                .bodyValue(json.toString())
+                .retrieve()
+                .bodyToMono(Object.class)
+                .block();
     }
 
-    private List<Integer> parseDependentTaskIds(String response) {
-        List<Integer> taskIds = new ArrayList<>();
-        JSONObject jsonResponse = new JSONObject(response);
-        JSONArray items = jsonResponse.getJSONObject("data").getJSONArray("boards")
-                .getJSONObject(0).getJSONArray("items");
-
-        for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.getJSONObject(i);
-            JSONArray dependencies = item.getJSONArray("column_values")
-                    .getJSONObject(0).getJSONArray("linkedPulseIds");
-
-            for (int j = 0; j < dependencies.length(); j++) {
-                taskIds.add(dependencies.getJSONObject(j).getInt("linkedPulseId"));
-            }
-        }
-        return taskIds;
-    }
-
-    public List<JSONObject> getAllItemsInBoard(Long boardId) throws IOException {
-//        String query = String.format("{ boards (ids: %d) { groups { items { id name column_values { id text } } } } }", boardId);
-        String q = String.format("{ boards (ids: %d) { items { id name column_values { id text } } } }", boardId);
-//        String query = String.format("{ boards (ids: 6714877704) { items { id name column_values { id title value } } }");
+    public void getAllItemsInBoard(Long boardId) throws IOException {
         String query = String.format("query {\n" +
-                "  boards(ids: 6714877704) {\n" +
-                "    items_page(limit: 5){\n" +
+                "  boards(ids: 6714877704){\n" +
+                "    items_page(limit: 500){\n" +
                 "      items{\n" +
                 "        id\n" +
                 "        name\n" +
-                "        column_values {\n" +
-                "          column {\n" +
-                "            title\n" +
-                "          }\n" +
-                "          text\n" +
+                "        column_values(ids: [\"status8__1\",\"dependency__1\"]){\n" +
+                "          id\n" +
                 "          value\n" +
+                "          text\n" +
                 "        }\n" +
                 "      }\n" +
                 "    }\n" +
                 "  }\n" +
                 "}");
-        String response = executeQuery(query);
-        return parseItems(response);
+        Object response = executeQuery(query);
+        parseBoard(response);
+    }
+
+    @SneakyThrows
+    public Object updatedItem(Map<String, Object> challenge) {
+        EventItem eventItem = objectMapper.convertValue(challenge, EventItem.class);
+        getAllItemsInBoard(eventItem.getEvent().getBoardId());
+        allItems = mondayBoard.getData().getBoards().get(0).getItemsPage().getItems();
+        for (int i = 0; i < allItems.size(); i++) {
+            Item item = allItems.get(i);
+            for (int j = 0; j < item.getColumnValues().size(); j++) {
+                if (item.getColumnValues().get(j).getValue() != null) {
+                    List<LinkedPulseId> linkedPulseIds = item.getColumnValues().get(j).getValue().getLinkedPulseIds();
+                    if (linkedPulseIds != null) {
+                        for (int k = 0; k < linkedPulseIds.size(); k++) {
+                            if (linkedPulseIds.get(k).getLinkedPulseId().equals(eventItem.getEvent().getPulseId())) {
+                                checkDependentItems(item);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
 
-    private List<JSONObject> parseItems(String response) {
-        List<JSONObject> itemsList = new ArrayList<>();
-        System.out.println(response);
-        JSONObject jsonResponse = new JSONObject(response);
-        JSONArray items = jsonResponse.getJSONObject("data").getJSONArray("boards")
-                .getJSONObject(0).getJSONArray("items");
+    @SneakyThrows
+    public Object getItemWithStatus(String pulseId) {
+        String query = String.format("query {\n" +
+                "      items(ids: %s){\n" +
+                "        id\n" +
+                "        name\n" +
+                "        column_values(ids: [\"status8__1\"]){\n" +
+                "          id\n" +
+                "          value\n" +
+                "          text\n" +
+                "        }\n" +
+                "      }\n" +
+                "}", pulseId);
+        Object o = executeQuery(query);
+        return parseItem(o);
+    }
 
-        for (int i = 0; i < items.length(); i++) {
-            itemsList.add(items.getJSONObject(i));
+    public void checkDependentItems(Item item) {
+        int count = 0;
+        List<LinkedPulseId> linkedPulseIds = item.getColumnValues().get(1).getValue().getLinkedPulseIds();
+        for (int k = 0; k < linkedPulseIds.size(); k++) {
+            for (int l = 0; l < allItems.size(); l++) {
+                if (linkedPulseIds.get(k).getLinkedPulseId().equals(allItems.get(l).getId()) && allItems.get(l).getColumnValues().get(0).getText().equals("Done")) {
+                    count++;
+                    if (count == linkedPulseIds.size()) {
+                        System.out.println("COME");
+                        updateItemColumn(item.getId());
+                    }
+                }
+            }
         }
-        System.out.println(itemsList);
-        return itemsList;
+        count = 0;
+    }
+
+
+    private void parseBoard(Object response) {
+        this.mondayBoard = objectMapper.convertValue(response, MondayBoard.class);
+        System.out.println(JSONObject.wrap(mondayBoard));
+    }
+
+    private Object parseItem(Object item) {
+        ItemsPage itemsPage = objectMapper.convertValue(item, ItemsPage.class);
+        return itemsPage;
+    }
+
+
+    @SneakyThrows
+    public void updateItemColumn(String itemId) {
+        String query = String.format("mutation {\n" +
+                "  change_column_value(\n" +
+                "    board_id: 6714877704,\n" +
+                "    item_id: %s,\n" +
+                "    column_id: \"%s\",\n" +
+                "    value: \"{\\\"label\\\": \\\"%s\\\"}\"\n" +
+                "  ) {\n" +
+                "    id\n" +
+                "  }\n" +
+                "}", itemId, COLUMN_ID, NEW_VALUE);
+        executeQuery(query);
     }
 }
