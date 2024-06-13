@@ -3,6 +3,7 @@ package uz.etherial.mondayintegration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -15,16 +16,11 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class MondayService {
     private static final String COLUMN_ID = "status8__1";
     private static final String NEW_VALUE = "To do";
-
-    @Value("${monday.api.token}")
-    private String apiToken;
-
-    @Value("${monday.api.url}")
-    private String apiUrl;
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
@@ -112,8 +108,8 @@ public class MondayService {
                 if (linkedPulseIds.get(k).getLinkedPulseId().equals(allItems.get(l).getId()) && allItems.get(l).getColumnValues().get(0).getText().equals("Done")) {
                     count++;
                     if (count == linkedPulseIds.size()) {
-                        System.out.println("COME");
                         updateItemColumn(item.getId());
+                        log.info("Item updated with id: {}",item);
                     }
                 }
             }
